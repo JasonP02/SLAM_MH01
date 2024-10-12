@@ -86,24 +86,17 @@ class Slam:
         R, t = self.feature_handler.decompose_essential_matrix(E)
 
         points_3d = self.triangulator.triangulate_points(pts0, pts1, R, t)
-        return R, t, points_3d, pts0, pts1
 
         
     def run(self):
         while True:
             try:
-                if self.frame_count == 0:
-                    self.process_start()
-                else:
-                    self.process_frames()
-
-                
+                self.process_frames()
                 # Perform loop closure detection
                 if self.loop_closure_detector.detect(self.map):
                     # Handle loop closure (e.g., update map, adjust poses)
                     pass
 
-                print(f"Frame {self.frame_count}: Rotation = {R}, Translation = {t}")
             except ValueError:
                 print("End of dataset reached") 
                 break
