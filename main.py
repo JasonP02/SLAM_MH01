@@ -1,5 +1,5 @@
 from slam import Slam
-from visualizer import visualize_map        
+from utils.visualization import visualize_map        
 
 def main():
     data_path = r"C:\Users\jason\Desktop\mav0"  
