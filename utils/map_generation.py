@@ -8,10 +8,7 @@ class Map():
     def update(self, R, t, P, cam0, cam1, imu_data, frame_count):
         # Create a new Features object
         new_keyframe = Keyframe(R, t, P, cam0, cam1, imu_data, frame_count)
-        self.keyframes.append(new_keyframe)
-        
-        # TODO: Implement 3D point triangulation and updating
-        pass
+        self.add_keyframe(new_keyframe)
 
     def add_keyframe(self, keyframe):
         self.keyframes.append(keyframe)
