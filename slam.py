@@ -1,83 +1,110 @@
 import numpy as np
 import cv2
-from map_gen import Map
-from preprocess import Preprocessing
+from utils.map_generation import Map
+from utils.preprocessing import Preprocessing
+from utils.triangulation import Triangulator
+from utils.feature_handling import FeatureHandler
+from bundle_adjustment import BundleAdjuster
+from loop_closure import LoopClosureDetector
 
 class Slam:
-    def __init__(self, preprocess):
+    def __init__(self, data_path):
         self.map = Map()
         self.frame_count = 0
-        self.preprocess = preprocess
+        self.preprocess = Preprocessing(data_path)
         self.orb = cv2.ORB_create(nfeatures=10000)
         self.cam0_params = self.preprocess.get_sensor('cam0')
         self.cam1_params = self.preprocess.get_sensor('cam1')
         self.imu_params = self.preprocess.get_sensor('imu0')
+        self.feature_handler = FeatureHandler
         self.bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-        
-    def process_frames(self):
+        self.bundle_adjuster = BundleAdjuster()
+        self.triangulator = Triangulator(self.cam0_params.extra_params, self.cam1_params.extra_params)
+        self.loop_closure_detector = LoopClosureDetector()
+        self.bundle_adjust_frequency = 10  # Adjust this value as needed
+
+         
+    def get_cam_and_imu_data(self):
+        # Get our data
         camera_imgs = self.preprocess.get_image_frame(self.frame_count)
         cam0_img = cv2.imread(camera_imgs['cam0'], cv2.IMREAD_GRAYSCALE)
         cam1_img = cv2.imread(camera_imgs['cam1'], cv2.IMREAD_GRAYSCALE)
-
         imu_data = self.preprocess.get_imu_data(self.frame_count)
+        return cam0_img, cam1_img, imu_data
+
+    def process_frames(self):
+        cam0_img, cam1_img, imu_data = self.get_cam_and_imu_data()
+        kp0, des0 = self.feature_handler.detect_and_compute(cam0_img)
+        kp1, des1 = self.feature_handler.detect_and_compute(cam1_img)
         
-        kp0, des0 = self.get_features(cam0_img)
-        kp1, des1 = self.get_features(cam1_img)
-        
-        matches = self.match_features(des0, des1)
-        
-        F, mask = self.compute_fundamental_matrix(kp0, kp1, matches)
-        E = self.compute_essential_matrix(F)
-        
-        R, t = self.decompose_essential_matrix(E)
-        
+        # Returns what we need for bundle adjustment, etc.
+        R, t, points_3d, pts0, pts1 = self.get_R_t_and_pts(kp0, kp1, des0, des1)
+
+        if self.frame_count % self.bundle_adjust_frequency == 0:
+            self.bundle_adjuster.update(self.map, R, t, points_3d)
+
         # Update map with new information
-        self.map.update(kp0, kp1, R, t, imu_data)
+        self.map.update(pts0, pts1, R, t, points_3d, imu_data, self.frame_count)
         
+        # Update the triangulator's pose
+        self.triangulator.update_pose(R, t)
         self.frame_count += 1
-        
-        return R, t
-
-    def get_features(self, img):
-        kp = self.orb.detect(img, None)
-        kp, des = self.orb.compute(img, kp)
-        return np.array([kp.pt for kp in kp]), des
-
-    def match_features(self, des0, des1):
-        matches = self.bf.match(des0, des1)
-        return sorted(matches, key=lambda x: x.distance)[:100]  # Keep top 100 matches
-
-    def compute_fundamental_matrix(self, kp0, kp1, matches):
-        pts0 = np.float32([kp0[m.queryIdx] for m in matches])
-        pts1 = np.float32([kp1[m.trainIdx] for m in matches])
-        F, mask = cv2.findFundamentalMat(pts0, pts1, cv2.FM_RANSAC)
-        return F, mask
-
-    def compute_essential_matrix(self, F):
-        K = np.array(self.cam0_params.extra_params['intrinsics']['parameters'])
-        return K.T @ F @ K
-
-    def decompose_essential_matrix(self, E):
-        _, R, t, _ = cv2.recoverPose(E)
-        return R, t
 
     def get_map(self):
         return self.map
 
-    def generate_map(self):
-        # Implement map generation logic here
-        # This could involve creating a 3D point cloud from the tracked features
-        pass
+    def get_R_t_and_pts(self, kp0, kp1, des0, des1):
+        matches = self.feature_handler.match_features(des0, des1)
+        
+        # Use matched keypoints for fundamental matrix computation
+        pts0 = np.float32([kp0[m.queryIdx].pt for m in matches])
+        pts1 = np.float32([kp1[m.trainIdx].pt for m in matches])
+        
+        F, mask = self.feature_handler.compute_fundamental_matrix(pts0, pts1)
+        
+        # Use the mask to filter out outliers
+        pts0 = pts0[mask.ravel() == 1]
+        pts1 = pts1[mask.ravel() == 1]
+        
+        E = self.feature_handler.compute_essential_matrix(F)
+        R, t = self.feature_handler.decompose_essential_matrix(E)
 
+        points_3d = self.triangulator.triangulate_points(pts0, pts1, R, t)
+        matches = self.feature_handler.match_features(des0, des1)
+        
+        # Use matched keypoints for fundamental matrix computation
+        pts0 = np.float32([kp0[m.queryIdx].pt for m in matches])
+        pts1 = np.float32([kp1[m.trainIdx].pt for m in matches])
+        
+        F, mask = self.feature_handler.compute_fundamental_matrix(pts0, pts1)
+        
+        # Use the mask to filter out outliers
+        pts0 = pts0[mask.ravel() == 1]
+        pts1 = pts1[mask.ravel() == 1]
+        
+        E = self.feature_handler.compute_essential_matrix(F)
+        R, t = self.feature_handler.decompose_essential_matrix(E)
+
+        points_3d = self.triangulator.triangulate_points(pts0, pts1, R, t)
+        return R, t, points_3d, pts0, pts1
+
+        
     def run(self):
         while True:
             try:
-                R, t = self.process_frames()
-                # Perform loop closure detection here
-                # Perform bundle adjustment here
+                if self.frame_count == 0:
+                    self.process_start()
+                else:
+                    self.process_frames()
+
+                
+                # Perform loop closure detection
+                if self.loop_closure_detector.detect(self.map):
+                    # Handle loop closure (e.g., update map, adjust poses)
+                    pass
+
                 print(f"Frame {self.frame_count}: Rotation = {R}, Translation = {t}")
             except ValueError:
-                # End of dataset reached
+                print("End of dataset reached") 
                 break
             
-            self.generate_map()
