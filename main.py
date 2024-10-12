@@ -1,19 +1,15 @@
-from preprocess import Preprocessing
 from slam import Slam
+from visualizer import visualize_map        
 
 def main():
-    # All data in this path
-    path = 'mav0'
-    preprocessor = Preprocessing()
-    # We need to process all of this data, and return an object that we can easily pass into Slam()
-    # Since we don't need real time performance, just batch it all at once.
-    data = preprocessor.get_data(path)
-    
+    data_path = r"C:\Users\jason\Desktop\mav0"  
     slam = Slam()
-    slam.generate_map(data)
-    map = slam.get_map() 
+    
+    slam.run()
+    map = slam.get_map()
 
+    # You can add visualization or further processing here if needed
+    visualize_map(map)
 
-
-if __name__ == main:
+if __name__ == "__main__":
     main()
