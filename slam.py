@@ -67,27 +67,20 @@ class Slam:
         pts1 = pts1[mask.ravel() == 1]
         
         E = self.feature_handler.compute_essential_matrix(F)
-        R, t = self.feature_handler.decompose_essential_matrix(E)
+        delta_R, delta_t = self.feature_handler.decompose_essential_matrix(E)
 
-        points_3d = self.triangulator.triangulate_points(pts0, pts1, R, t)
-        matches = self.feature_handler.match_features(des0, des1)
+        # Get the current cumulative transformation
+        current_R = self.triangulator.current_R
+        current_t = self.triangulator.current_t
         
-        # Use matched keypoints for fundamental matrix computation
-        pts0 = np.float32([kp0[m.queryIdx].pt for m in matches])
-        pts1 = np.float32([kp1[m.trainIdx].pt for m in matches])
-        
-        F, mask = self.feature_handler.compute_fundamental_matrix(pts0, pts1)
-        
-        # Use the mask to filter out outliers
-        pts0 = pts0[mask.ravel() == 1]
-        pts1 = pts1[mask.ravel() == 1]
-        
-        E = self.feature_handler.compute_essential_matrix(F)
-        R, t = self.feature_handler.decompose_essential_matrix(E)
+        # Compute the new absolute transformation
+        R = delta_R @ current_R
+        t = delta_R @ current_t + delta_t
 
-        points_3d = self.triangulator.triangulate_points(pts0, pts1, R, t)
+        points_3d = self.triangulator.triangulate_points(pts0, pts1, delta_R, delta_t)
 
-        
+        return R, t, points_3d, pts0, pts1
+
     def run(self):
         while True:
             try:
