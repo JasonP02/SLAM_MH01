@@ -3,7 +3,7 @@ from utils.visualization import visualize_map
 
 def main():
     data_path = r"C:\Users\jason\Desktop\mav0"  
-    slam = Slam()
+    slam = Slam(data_path=data_path)
     
     slam.run()
     map = slam.get_map()

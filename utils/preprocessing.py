@@ -25,9 +25,9 @@ class Preprocessing:
         self.cam1_path = os.path.join(self.root_dir, 'cam1')
         self.imu0_path = os.path.join(self.root_dir, 'imu0')
         
-        # Cache image files
-        self.cam0_path_files = sorted(glob.glob(os.path.join(self.cam0_path, 'data', '*.png')), reverse=True)
-        self.cam1_path_files = sorted(glob.glob(os.path.join(self.cam1_path, 'data', '*.png')), reverse=True)
+        # Cache image files in chronological order (remove reverse=True)
+        self.cam0_path_files = sorted(glob.glob(os.path.join(self.cam0_path, 'data', '*.png')))
+        self.cam1_path_files = sorted(glob.glob(os.path.join(self.cam1_path, 'data', '*.png')))
         
         # Cache IMU data
         self.imu_data = self._load_imu_data()
@@ -86,7 +86,11 @@ class Preprocessing:
         start_idx = frame_num * 10
         end_idx = start_idx + 10
         
-        if start_idx < 0 or end_idx > len(self.imu_data):
-            raise ValueError("Invalid frame number")
+        # If we don't have enough IMU data, return what we have
+        if end_idx > len(self.imu_data):
+            end_idx = len(self.imu_data)
+        
+        if start_idx >= len(self.imu_data):
+            raise ValueError("IMU fail")
         
         return self.imu_data[start_idx:end_idx, 1:]  # Exclude timestamp column
